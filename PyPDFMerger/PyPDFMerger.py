@@ -39,7 +39,7 @@ def main():
     input()
     clearScreen()
 
-    files = os.listdir(config.PDFDir) # Get all files in the specified directory
+    files = os.listdir(config.PDFDir) # Get all files in the specified directory.
     for f in files:
             if f.endswith('.pdf'): pdfs.append(f) # Select only pdfs.
 
