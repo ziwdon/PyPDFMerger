@@ -1,0 +1,5 @@
+pip==22.3
+pyPdf==1.13
+PyPDF2==2.11.1
+setuptools==65.5.0
+typing_extensions==4.4.0
