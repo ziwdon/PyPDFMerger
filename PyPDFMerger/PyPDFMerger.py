@@ -43,10 +43,14 @@ def main():
     for f in files:
             if f.endswith('.pdf'): pdfs.append(f) # Select only pdfs.
 
+    if not pdfs:
+        print('\nNo valid files were detected.\n')
+        exit()
+
     print('\nThe following PDF files were detected:')
     for pdf in pdfs: print('- ' + pdf)
 
-    key = input('\nInput \'y\' to continue:')
+    key = input('\nInput \'y\' to continue: ')
     clearScreen()
 
     if key.lower() == 'y':
