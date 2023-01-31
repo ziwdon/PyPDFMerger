@@ -40,7 +40,7 @@ def main():
     input()
     clearScreen()
 
-    if not os.path.isdir('pdfs'):
+    if not os.path.isdir(config.PDFDir): # Check if destination folder exists.
         print('\nNo folder named \'' + config.PDFDir + '\' was detected.\n')
         exit()
 
@@ -48,13 +48,12 @@ def main():
     for f in files:
             if f.endswith('.pdf'): pdfs.append(f) # Select only pdfs.
 
-    if not pdfs:
+    if not pdfs: # If there are no PDF files.
         print('\nNo valid files were detected.\n')
         exit()
 
     print('\nThe following PDF files were detected:')
     for pdf in pdfs: print('- ' + pdf)
-
     key = input('\nInput \'y\' to continue: ')
     clearScreen()
 
