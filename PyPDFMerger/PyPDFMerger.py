@@ -1,3 +1,8 @@
+#TO DO
+#- IMG2PDF
+#- If pdf folder has no files, exit
+#- Create running EXE
+
 import os
 import PyPDF2
 
@@ -42,6 +47,11 @@ def main():
     files = os.listdir(config.PDFDir) # Get all files in the specified directory.
     for f in files:
             if f.endswith('.pdf'): pdfs.append(f) # Select only pdfs.
+
+    if len(pdfs) <= 0: # If no pdf files were found, then exit.
+        clearScreen()
+        print('\nNo PDF files were detected.\n')
+        return
 
     print('\nThe following PDF files were detected:')
     for pdf in pdfs: print('- ' + pdf)
