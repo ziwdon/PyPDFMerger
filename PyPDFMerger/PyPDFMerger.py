@@ -39,10 +39,15 @@ def main():
     pdfs = []
     
     print('\nPlease make sure all your PDF files are in a folder named \'' + config.PDFDir + '\'.')
-    print('The folder should be in the same root directory where the app is running.')
+    print('The folder should be in the same root directory where the app is running.\n')
+    print('Current root directory: ' + os.getcwd())
     print('\nPress ENTER to continue..')
     input()
     clearScreen()
+
+    if not os.path.isdir(config.PDFDir): # Check if destination folder exists.
+        print('\nNo folder named \'' + config.PDFDir + '\' was detected.\n')
+        exit()
 
     files = os.listdir(config.PDFDir) # Get all files in the specified directory.
     for f in files:
@@ -55,8 +60,7 @@ def main():
 
     print('\nThe following PDF files were detected:')
     for pdf in pdfs: print('- ' + pdf)
-
-    key = input('\nInput \'y\' to continue:')
+    key = input('\nInput \'y\' to continue: ')
     clearScreen()
 
     if key.lower() == 'y':
@@ -66,6 +70,6 @@ def main():
         except Exception as e: print(str(e))
     else: print('\nOperation canceled.')
 
-    print('\n')
+    print('')
 
 main()
