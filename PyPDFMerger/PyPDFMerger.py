@@ -53,7 +53,7 @@ def main():
     for f in files:
             if f.endswith('.pdf'): pdfs.append(f) # Select only pdfs.
 
-    if len(pdfs) <= 0: # If no pdf files were found, then exit.
+    if not pdfs: # If no pdf files were found, then exit.
         clearScreen()
         print('\nNo PDF files were detected.\n')
         return
