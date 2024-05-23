@@ -3,11 +3,27 @@
 ##
 ## Get latest from https://github.com/github/gitignore/blob/master/VisualStudio.gitignore
 
+#Custom
+PyPDFMerger/pdfs
+pdfs/
+
 # Ignore virtual environment
 myenv/
 __pycache__/
 *.pyc
 *.pyo
+
+# Ignore PyInstaller build artifacts
+build/
+dist/
+*.spec
+
+# Ignore system-specific files
+.DS_Store
+Thumbs.db
+
+# Ignore Visual Studio Code settings
+.vscode/
 
 # User-specific files
 *.rsuser
@@ -367,6 +383,3 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
-
-#Custom
-PyPDFMerger/pdfs
