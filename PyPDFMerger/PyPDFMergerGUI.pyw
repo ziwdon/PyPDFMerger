@@ -16,43 +16,47 @@ class PDF:
             raise Exception(errormsg)
 
         for pdf in pdfs:
-            try:
-                merger.append(os.path.join(destination, pdf))
-            except PyPDF2.errors.EmptyFileError:
-                continue
+            if PDF.validate(pdf):
+                try:
+                    merger.append(pdf)
+                except PyPDF2.errors.EmptyFileError:
+                    continue
 
         merger.write(result)
         merger.close()
 
-def select_folder():
-    folder_selected = filedialog.askdirectory()
+    @staticmethod
+    def validate(pdf):
+        try:
+            with open(pdf, 'rb') as file:
+                PyPDF2.PdfReader(file)
+            return True
+        except (PyPDF2.errors.PdfReadError, PyPDF2.errors.EmptyFileError):
+            return False
+
+def select_files():
+    pdf_files = filedialog.askopenfilenames(filetypes=[("PDF files", "*.pdf")])
+    folder_selected = os.path.dirname(pdf_files[0]) if pdf_files else ''
     folder_var.set(folder_selected)
-    if folder_selected:
-        files = os.listdir(folder_selected)
-        pdfs = [f for f in files if f.endswith('.pdf')]
-        file_listbox.delete(0, tk.END)
-        for pdf in pdfs:
-            file_listbox.insert(tk.END, pdf)
+    file_listbox.delete(0, tk.END)
+    for pdf in pdf_files:
+        file_listbox.insert(tk.END, pdf)
 
 def merge_pdfs():
     try:
         destination = folder_var.get()
         pdfname = output_name_var.get()
         
-        # Get PDF files in the list
         files = list(file_listbox.get(0, tk.END))
         if not files:
             raise Exception(lang_texts[language]['no_pdfs'])
         
-        # Check if an output file name is set
         if len(pdfname) == 0:
             raise Exception(lang_texts[language]['no_name'])
         
-        # Validate file name extension
         if not pdfname.endswith('.pdf'):
             pdfname += '.pdf'
 
-        # Merge PDFs
         PDF.merge(files, destination, pdfname)
         messagebox.showinfo("Success", lang_texts[language]['operation_completed'].format(destination, pdfname))
     except Exception as e:
@@ -61,7 +65,7 @@ def merge_pdfs():
 def set_language():
     global language
     language = lang_var.get()
-    select_folder_btn.config(text=lang_texts[language]['select_folder'])
+    select_files_btn.config(text=lang_texts[language]['select_files'])
     merge_pdfs_btn.config(text=lang_texts[language]['merge_pdfs'])
     move_up_btn.config(text=lang_texts[language]['move_up'])
     move_down_btn.config(text=lang_texts[language]['move_down'])
@@ -99,13 +103,14 @@ def remove_pdf():
 
 app = tk.Tk()
 app.title("PDF Merger")
+app.geometry("600x400")
 
 folder_var = tk.StringVar()
 output_name_var = tk.StringVar()
 
 lang_texts = {
     'en': {
-        'select_folder': 'Select Folder',
+        'select_files': 'Select PDFs',
         'merge_pdfs': 'Merge PDFs',
         'output_name': 'Output PDF Name:',
         'operation_completed': 'Operation completed. PDF file saved in "{}" as "{}".',
@@ -116,7 +121,7 @@ lang_texts = {
         'no_name': 'Please set a file name.'
     },
     'es': {
-        'select_folder': 'Seleccionar carpeta',
+        'select_files': 'Seleccionar PDFs',
         'merge_pdfs': 'Unir PDFs',
         'output_name': 'Nombre del PDF de salida:',
         'operation_completed': 'Operación completada. Archivo PDF guardado en "{}" como "{}".',
@@ -131,7 +136,6 @@ lang_texts = {
 lang_var = tk.StringVar(value='en')
 language = lang_var.get()
 
-# Configure grid layout
 app.grid_columnconfigure(0, weight=1)
 app.grid_columnconfigure(1, weight=1)
 app.grid_columnconfigure(2, weight=1)
@@ -140,11 +144,18 @@ tk.Label(app, text="Language:").grid(row=0, column=0, padx=10, pady=10, sticky="
 tk.Radiobutton(app, text="English", variable=lang_var, value='en', command=set_language).grid(row=0, column=1, padx=10, pady=10, sticky="ew")
 tk.Radiobutton(app, text="Español", variable=lang_var, value='es', command=set_language).grid(row=0, column=2, padx=10, pady=10, sticky="ew")
 
-select_folder_btn = tk.Button(app, text=lang_texts[language]['select_folder'], command=select_folder)
-select_folder_btn.grid(row=1, column=0, columnspan=3, padx=10, pady=10, sticky="ew")
+select_files_btn = tk.Button(app, text=lang_texts[language]['select_files'], command=select_files)
+select_files_btn.grid(row=1, column=0, columnspan=3, padx=10, pady=10, sticky="ew")
 
-file_listbox = tk.Listbox(app, width=50)
-file_listbox.grid(row=2, column=0, columnspan=3, padx=10, pady=10, sticky="ew")
+frame = tk.Frame(app)
+frame.grid(row=2, column=0, columnspan=3, padx=10, pady=10, sticky="ew")
+
+scrollbar = tk.Scrollbar(frame, orient="vertical")
+scrollbar.pack(side="right", fill="y")
+
+file_listbox = tk.Listbox(frame, width=50, yscrollcommand=scrollbar.set)
+file_listbox.pack(side="left", fill="both", expand=True)
+scrollbar.config(command=file_listbox.yview)
 
 move_up_btn = tk.Button(app, text=lang_texts[language]['move_up'], command=move_up)
 move_up_btn.grid(row=3, column=0, padx=10, pady=10, sticky="ew")
