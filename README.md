@@ -1,7 +1,7 @@
 <b>Description</b></br>
 Simple Python app to merge multiple PDF files into a single one.
 
-<b>Setup</b></br>
+</br><b>Setup</b></br>
 
 1. <b>Clone the Repository</b>:
    <pre>
@@ -41,9 +41,21 @@ Simple Python app to merge multiple PDF files into a single one.
        <li>Type <code>Python: Select Interpreter</code> and select the interpreter located in your virtual environment (<code>./myenv/Scripts/python</code> for Windows or <code>./myenv/bin/python</code> for macOS/Linux).</li>
      </ul>
 
-<b>Usage</b></br>
-Please make sure all your PDF files are in a folder named 'pdfs'.
-The folder should be in the same root directory where the app is running.
+</br><b>To create an executable file</b></br>
+   <pre>
+   <code>
+      pip install cx-Freeze
+      python setup.py build
+   </code>
+   </pre>
 
-<b>Configuration</b></br>
-You can use 'config.py' to change the default folder and the resulting PDF name.
+</br><b>Usage</b></br>
+<ul>
+   <b>Console version</b>:</br>
+   Please make sure all your PDF files are in a folder named 'pdfs'.</br>
+   The folder should be in the same root directory where the app is running.</br>
+   You can use 'config.py' to change the default folder and the resulting PDF name.</br>
+   
+   </br><b>Executable version</b>:</br>
+   Simply run the PyPDFMergerGUI.exe in the build folder.
+</ul>
