@@ -5,29 +5,21 @@ Simple Python app to merge multiple PDF files into a single one.
 
 1. <b>Clone the Repository</b>:
    <pre>
-   <code>
    git clone &lt;repository-url&gt;
    cd PyPDFMerger
-   </code>
    </pre>
 
 2. <b>Create and Activate Virtual Environment</b>:
    <pre>
-   <code>
    python -m venv myenv
    # Windows
    .\myenv\Scripts\activate
    # macOS/Linux
    source myenv/bin/activate
-   </code>
    </pre>
 
 3. <b>Install Dependencies</b>:
-   <pre>
-   <code>
-   pip install -r requirements.txt
-   </code>
-   </pre>
+   <pre>pip install -r requirements.txt</pre>
 
 4. <b>If using VS Code</b>:
    <ul>
@@ -42,12 +34,10 @@ Simple Python app to merge multiple PDF files into a single one.
      </ul>
 
 </br><b>To create an executable file</b></br>
-   <pre>
-   <code>
-      pip install cx-Freeze
-      python setup.py build
-   </code>
-   </pre>
+<pre>
+pip install cx-Freeze
+python setup.py build
+</pre>
 
 </br><b>Usage</b></br>
 <ul>
