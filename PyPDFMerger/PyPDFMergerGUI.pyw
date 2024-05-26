@@ -101,13 +101,9 @@ def remove_pdf():
     except IndexError:
         pass
 
-app = tk.Tk()
-app.title("PDF Merger")
-app.geometry("600x400")
 
-folder_var = tk.StringVar()
-output_name_var = tk.StringVar()
 
+# Languages
 lang_texts = {
     'en': {
         'select_files': 'Select PDFs',
@@ -133,22 +129,37 @@ lang_texts = {
     }
 }
 
+
+
+# GUI
+app = tk.Tk()
+app.title("PDF Merger")
+app.geometry("600x400")
+app.minsize(600, 400)
+
+folder_var = tk.StringVar()
+output_name_var = tk.StringVar()
+
 lang_var = tk.StringVar(value='en')
 language = lang_var.get()
 
 app.grid_columnconfigure(0, weight=1)
 app.grid_columnconfigure(1, weight=1)
 app.grid_columnconfigure(2, weight=1)
+app.grid_rowconfigure(2, weight=1) # Configure the row for the Listbox to expand vertically
 
-tk.Label(app, text="Language:").grid(row=0, column=0, padx=10, pady=10, sticky="ew")
-tk.Radiobutton(app, text="English", variable=lang_var, value='en', command=set_language).grid(row=0, column=1, padx=10, pady=10, sticky="ew")
-tk.Radiobutton(app, text="Español", variable=lang_var, value='es', command=set_language).grid(row=0, column=2, padx=10, pady=10, sticky="ew")
+frame_lang = tk.Frame(app)
+frame_lang.grid(row=0, column=0, padx=10, pady=10, sticky="w")
+
+tk.Label(frame_lang, text="Language:").pack(side=tk.LEFT, padx=5, pady=10)
+tk.Radiobutton(frame_lang, text="English", variable=lang_var, value='en', command=set_language).pack(side=tk.LEFT, padx=5, pady=10)
+tk.Radiobutton(frame_lang, text="Español", variable=lang_var, value='es', command=set_language).pack(side=tk.LEFT, padx=5, pady=10)
 
 select_files_btn = tk.Button(app, text=lang_texts[language]['select_files'], command=select_files)
 select_files_btn.grid(row=1, column=0, columnspan=3, padx=10, pady=10, sticky="ew")
 
 frame = tk.Frame(app)
-frame.grid(row=2, column=0, columnspan=3, padx=10, pady=10, sticky="ew")
+frame.grid(row=2, column=0, columnspan=3, padx=10, pady=10, sticky="nsew")
 
 scrollbar = tk.Scrollbar(frame, orient="vertical")
 scrollbar.pack(side="right", fill="y")
