@@ -1,12 +1,12 @@
 import os
-import PyPDF2
+import pypdf
 import tkinter as tk
 from tkinter import filedialog, messagebox
 
 class PDF:
     @staticmethod
     def merge(pdfs, destination, pdfname):
-        merger = PyPDF2.PdfMerger()
+        merger = pypdf.PdfMerger()
         result = os.path.join(destination, pdfname)
         errormsg = ''
 
@@ -19,7 +19,7 @@ class PDF:
             if PDF.validate(pdf):
                 try:
                     merger.append(pdf)
-                except PyPDF2.errors.EmptyFileError:
+                except pypdf.errors.EmptyFileError:
                     continue
 
         merger.write(result)
@@ -29,9 +29,9 @@ class PDF:
     def validate(pdf):
         try:
             with open(pdf, 'rb') as file:
-                PyPDF2.PdfReader(file)
+                pypdf.PdfReader(file)
             return True
-        except (PyPDF2.errors.PdfReadError, PyPDF2.errors.EmptyFileError):
+        except (pypdf.errors.PdfReadError, pypdf.errors.EmptyFileError):
             return False
 
 def select_files():
@@ -132,6 +132,7 @@ lang_texts = {
 
 
 # GUI
+# Create the main application window
 app = tk.Tk()
 app.title("PDF Merger")
 app.geometry("600x400")
@@ -143,11 +144,13 @@ output_name_var = tk.StringVar()
 lang_var = tk.StringVar(value='en')
 language = lang_var.get()
 
+# Configure grid columns and rows
 app.grid_columnconfigure(0, weight=1)
 app.grid_columnconfigure(1, weight=1)
 app.grid_columnconfigure(2, weight=1)
 app.grid_rowconfigure(2, weight=1) # Configure the row for the Listbox to expand vertically
 
+# Create and place the language frame
 frame_lang = tk.Frame(app)
 frame_lang.grid(row=0, column=0, padx=10, pady=10, sticky="w")
 
@@ -155,34 +158,47 @@ tk.Label(frame_lang, text="Language:").pack(side=tk.LEFT, padx=5, pady=10)
 tk.Radiobutton(frame_lang, text="English", variable=lang_var, value='en', command=set_language).pack(side=tk.LEFT, padx=5, pady=10)
 tk.Radiobutton(frame_lang, text="Español", variable=lang_var, value='es', command=set_language).pack(side=tk.LEFT, padx=5, pady=10)
 
+# Create and place the select files button
 select_files_btn = tk.Button(app, text=lang_texts[language]['select_files'], command=select_files)
 select_files_btn.grid(row=1, column=0, columnspan=3, padx=10, pady=10, sticky="ew")
 
+# Create and place the frame containing the listbox and scrollbar
 frame = tk.Frame(app)
 frame.grid(row=2, column=0, columnspan=3, padx=10, pady=10, sticky="nsew")
 
 scrollbar = tk.Scrollbar(frame, orient="vertical")
 scrollbar.pack(side="right", fill="y")
 
-file_listbox = tk.Listbox(frame, width=50, yscrollcommand=scrollbar.set)
+file_listbox = tk.Listbox(frame, yscrollcommand=scrollbar.set)
 file_listbox.pack(side="left", fill="both", expand=True)
 scrollbar.config(command=file_listbox.yview)
 
-move_up_btn = tk.Button(app, text=lang_texts[language]['move_up'], command=move_up)
-move_up_btn.grid(row=3, column=0, padx=10, pady=10, sticky="ew")
-move_down_btn = tk.Button(app, text=lang_texts[language]['move_down'], command=move_down)
-move_down_btn.grid(row=3, column=1, padx=10, pady=10, sticky="ew")
+# Create a frame to hold the buttons with equal width
+button_frame = tk.Frame(app)
+button_frame.grid(row=3, column=0, columnspan=3, padx=10, pady=10, sticky="ew")
 
-remove_pdf_btn = tk.Button(app, text=lang_texts[language]['remove_pdf'], command=remove_pdf)
-remove_pdf_btn.grid(row=3, column=2, padx=10, pady=10, sticky="ew")
+# Create buttons with a fixed width and pack them in the frame
+button_width = 15
 
+move_up_btn = tk.Button(button_frame, text=lang_texts[language]['move_up'], command=move_up, width=button_width)
+move_up_btn.pack(side=tk.LEFT, padx=5, pady=10, expand=True, fill=tk.X)
+
+move_down_btn = tk.Button(button_frame, text=lang_texts[language]['move_down'], command=move_down, width=button_width)
+move_down_btn.pack(side=tk.LEFT, padx=5, pady=10, expand=True, fill=tk.X)
+
+remove_pdf_btn = tk.Button(button_frame, text=lang_texts[language]['remove_pdf'], command=remove_pdf, width=button_width)
+remove_pdf_btn.pack(side=tk.LEFT, padx=5, pady=10, expand=True, fill=tk.X)
+
+# Create and place the output name label and entry
 output_name_label = tk.Label(app, text=lang_texts[language]['output_name'])
 output_name_label.grid(row=4, column=0, padx=10, pady=10, sticky="e")
 
 output_name_entry = tk.Entry(app, textvariable=output_name_var)
 output_name_entry.grid(row=4, column=1, columnspan=2, padx=10, pady=10, sticky="ew")
 
+# Create and place the merge PDFs button
 merge_pdfs_btn = tk.Button(app, text=lang_texts[language]['merge_pdfs'], command=merge_pdfs)
 merge_pdfs_btn.grid(row=5, column=0, columnspan=3, padx=10, pady=10, sticky="ew")
 
+# Run the application
 app.mainloop()
