@@ -5,11 +5,18 @@ from __future__ import annotations
 import io
 from pathlib import Path
 import re
+from urllib.parse import unquote, urlparse
 
 import pypdf
 import tkinter as tk
 from tkinter import filedialog, messagebox
 from tkinter import font as tkfont
+
+try:
+    from tkinterdnd2 import DND_FILES, TkinterDnD
+except ImportError:  # pragma: no cover - optional dependency at runtime
+    DND_FILES = None
+    TkinterDnD = None
 
 
 # ── PDF logic ─────────────────────────────────────────────────────────────────
@@ -334,6 +341,9 @@ LANG_TEXTS: dict[str, dict[str, str]] = {
         "move_up":                 "\u2191  Move Up",
         "move_down":               "\u2193  Move Down",
         "remove_pdf":              "\u00d7  Remove",
+        "clear_all":               "Clear All",
+        "choose_output_folder":    "Choose Output Folder",
+        "drop_hint":               "Tip: drag PDF files here to add; drag rows to reorder.",
         "no_name":                 "Please enter a file name.",
         "no_destination":          "No destination folder set. Select a PDF first.",
         "file_exists":             "A file with that name already exists in the destination folder.",
@@ -344,6 +354,9 @@ LANG_TEXTS: dict[str, dict[str, str]] = {
         "invalid_chunk_size":      "Pages-per-file must be a whole number greater than 0.",
         "no_bookmarks_found":      "No usable bookmarks were found to split this PDF.",
         "some_pdfs_skipped":       "Some files were skipped (invalid PDFs):\n\n{}",
+        "duplicate_files_skipped": "These files were already added and were skipped:\n\n{}",
+        "non_pdf_files_skipped":   "Only PDF files can be added. Ignored:\n\n{}",
+        "split_drop_truncated":    "Split mode only supports one source PDF. The first valid PDF was kept.",
         "files_selected":          "{} file(s) selected",
         "no_files":                "No files selected",
         "destination":             "Destination:",
@@ -378,6 +391,9 @@ LANG_TEXTS: dict[str, dict[str, str]] = {
         "move_up":                 "\u2191  Subir",
         "move_down":               "\u2193  Bajar",
         "remove_pdf":              "\u00d7  Eliminar",
+        "clear_all":               "Limpiar todo",
+        "choose_output_folder":    "Elegir carpeta de salida",
+        "drop_hint":               "Consejo: arrastre PDFs aqu\u00ed para agregarlos; arrastre filas para reordenar.",
         "no_name":                 "Por favor, introduzca un nombre de archivo.",
         "no_destination":          "No se ha establecido carpeta de destino. Seleccione un PDF primero.",
         "file_exists":             "Ya existe un archivo con ese nombre en la carpeta de destino.",
@@ -388,6 +404,9 @@ LANG_TEXTS: dict[str, dict[str, str]] = {
         "invalid_chunk_size":      "P\u00e1ginas por archivo debe ser un n\u00famero mayor que 0.",
         "no_bookmarks_found":      "No se encontraron marcadores v\u00e1lidos para dividir este PDF.",
         "some_pdfs_skipped":       "Algunos archivos fueron omitidos (PDFs inv\u00e1lidos):\n\n{}",
+        "duplicate_files_skipped": "Estos archivos ya estaban agregados y fueron omitidos:\n\n{}",
+        "non_pdf_files_skipped":   "Solo se pueden agregar archivos PDF. Ignorados:\n\n{}",
+        "split_drop_truncated":    "El modo Dividir solo admite un PDF de origen. Se conserv\u00f3 el primer PDF v\u00e1lido.",
         "files_selected":          "{} archivo(s) seleccionado(s)",
         "no_files":                "Sin archivos seleccionados",
         "destination":             "Destino:",
@@ -429,6 +448,8 @@ class PDFMergerApp:
 
         # Full paths tracked separately from listbox display names
         self._pdf_paths: list[str] = []
+        self._output_folder_explicit = False
+        self._drag_index: int | None = None
 
         self.folder_var = tk.StringVar()
         self.output_name_var = tk.StringVar()
@@ -643,7 +664,16 @@ class PDFMergerApp:
             bg=THEME["primary"],
             hover_bg=THEME["primary_hover"],
         )
-        self.select_files_btn.pack(fill="x", pady=(0, 10))
+        self.select_files_btn.pack(fill="x", pady=(0, 6))
+
+        self.choose_output_btn = self._styled_btn(
+            body,
+            text=self.t["choose_output_folder"],
+            command=self._choose_output_folder,
+            bg=THEME["neutral"],
+            hover_bg=THEME["neutral_hover"],
+        )
+        self.choose_output_btn.pack(fill="x", pady=(0, 10))
 
         # ── File list card ───────────────────────────────────────────────────
         list_card = tk.Frame(
@@ -698,7 +728,17 @@ class PDFMergerApp:
             hover_bg=THEME["danger_hover"],
             font=self.font_btn_sm,
         )
-        self.remove_pdf_btn.pack(side="left")
+        self.remove_pdf_btn.pack(side="left", padx=(0, 4))
+
+        self.clear_all_btn = self._styled_btn(
+            btn_bar,
+            text=self.t["clear_all"],
+            command=self._clear_all,
+            bg=THEME["neutral"],
+            hover_bg=THEME["neutral_hover"],
+            font=self.font_btn_sm,
+        )
+        self.clear_all_btn.pack(side="left")
 
         self._hairline(list_card).pack(fill="x")
 
@@ -724,6 +764,18 @@ class PDFMergerApp:
         )
         self.file_listbox.pack(side="left", fill="both", expand=True, padx=8, pady=4)
         scrollbar.config(command=self.file_listbox.yview)
+        self.file_listbox.bind("<ButtonPress-1>", self._on_list_press)
+        self.file_listbox.bind("<B1-Motion>", self._on_list_drag)
+        self.file_listbox.bind("<ButtonRelease-1>", self._on_list_release)
+
+        self.drop_hint_label = tk.Label(
+            list_card,
+            text=self.t["drop_hint"],
+            bg=THEME["surface"],
+            fg=THEME["text_secondary"],
+            font=self.font_status,
+        )
+        self.drop_hint_label.pack(anchor="w", padx=12, pady=(0, 8))
 
         # ── Split options ────────────────────────────────────────────────────
         self.split_options_card = tk.Frame(
@@ -941,6 +993,7 @@ class PDFMergerApp:
         self.destination_label.pack(side="left", padx=(4, 0))
 
         self._update_lang_buttons()
+        self._setup_external_drop()
         self._update_mode_ui()
         self._on_split_mode_change()
 
@@ -978,6 +1031,76 @@ class PDFMergerApp:
         self.file_listbox.delete(0, tk.END)
         for path in self._pdf_paths:
             self.file_listbox.insert(tk.END, f"  {Path(path).name}")
+
+    def _set_destination(self, folder: str, explicit: bool = False) -> None:
+        cleaned = folder.strip()
+        self.folder_var.set(cleaned)
+        if explicit:
+            self._output_folder_explicit = bool(cleaned)
+        self.destination_label.config(text=cleaned if cleaned else "\u2014")
+
+    @staticmethod
+    def _canonical_path(path: str) -> str:
+        return str(Path(path).expanduser().resolve(strict=False))
+
+    def _add_paths(self, candidate_paths: list[str]) -> None:
+        if not candidate_paths:
+            return
+
+        existing = {self._canonical_path(path) for path in self._pdf_paths}
+        duplicates: list[str] = []
+        non_pdfs: list[str] = []
+        added_any = False
+
+        for raw_path in candidate_paths:
+            path = raw_path.strip()
+            if not path:
+                continue
+            path_obj = Path(path)
+            if path_obj.suffix.lower() != ".pdf" or not path_obj.exists() or not path_obj.is_file():
+                non_pdfs.append(path_obj.name or path)
+                continue
+            canonical = self._canonical_path(path)
+            if canonical in existing:
+                duplicates.append(path_obj.name)
+                continue
+            existing.add(canonical)
+            self._pdf_paths.append(str(path_obj))
+            added_any = True
+
+        if added_any and not self._output_folder_explicit:
+            self._set_destination(str(Path(self._pdf_paths[0]).parent))
+
+        self._refresh_listbox()
+        self._update_file_count()
+
+        if duplicates:
+            unique = sorted(set(duplicates))
+            messagebox.showwarning("Warning", self.t["duplicate_files_skipped"].format("\n".join(unique)))
+        if non_pdfs:
+            unique = sorted(set(non_pdfs))
+            messagebox.showwarning("Warning", self.t["non_pdf_files_skipped"].format("\n".join(unique)))
+
+    def _setup_external_drop(self) -> None:
+        if DND_FILES is None:
+            return
+        self.file_listbox.drop_target_register(DND_FILES)
+        self.file_listbox.dnd_bind("<<Drop>>", self._on_external_drop)
+
+    def _parse_drop_paths(self, event_data: str) -> list[str]:
+        raw_items = self.root.tk.splitlist(event_data)
+        paths: list[str] = []
+        for item in raw_items:
+            token = item.strip()
+            if not token:
+                continue
+            if token.startswith("file://"):
+                parsed = urlparse(token)
+                token = unquote(parsed.path)
+                if parsed.netloc:
+                    token = f"//{parsed.netloc}{token}"
+            paths.append(token)
+        return paths
 
     def _update_mode_ui(self) -> None:
         merge_mode = self.operation == "merge"
@@ -1020,6 +1143,9 @@ class PDFMergerApp:
         self.move_up_btn.config(text=self.t["move_up"])
         self.move_down_btn.config(text=self.t["move_down"])
         self.remove_pdf_btn.config(text=self.t["remove_pdf"])
+        self.clear_all_btn.config(text=self.t["clear_all"])
+        self.choose_output_btn.config(text=self.t["choose_output_folder"])
+        self.drop_hint_label.config(text=self.t["drop_hint"])
         self._dest_key_label.config(text=self.t["destination"])
 
         self.split_method_label.config(text=self.t["split_method"])
@@ -1062,17 +1188,44 @@ class PDFMergerApp:
             selected = filedialog.askopenfilenames(filetypes=[("PDF files", "*.pdf")])
             if not selected:
                 return
-            self._pdf_paths = list(selected)
+            self._add_paths(list(selected))
         else:
             selected = filedialog.askopenfilename(filetypes=[("PDF files", "*.pdf")])
             if not selected:
                 return
             self._pdf_paths = [selected]
+            if not self._output_folder_explicit:
+                self._set_destination(str(Path(self._pdf_paths[0]).parent))
+            self._refresh_listbox()
+            self._update_file_count()
 
-        self.folder_var.set(str(Path(self._pdf_paths[0]).parent))
-        self._refresh_listbox()
-        self._update_file_count()
-        self.destination_label.config(text=self.folder_var.get())
+    def _choose_output_folder(self) -> None:
+        initial = self.folder_var.get() or str(Path.home())
+        folder = filedialog.askdirectory(initialdir=initial)
+        if not folder:
+            return
+        self._set_destination(folder, explicit=True)
+
+    def _on_external_drop(self, event) -> str:
+        dropped_paths = self._parse_drop_paths(event.data)
+        if not dropped_paths:
+            return "break"
+
+        if self.operation == "merge":
+            self._add_paths(dropped_paths)
+        else:
+            pdfs = [path for path in dropped_paths if Path(path).suffix.lower() == ".pdf"]
+            if not pdfs:
+                messagebox.showwarning("Warning", self.t["non_pdf_files_skipped"].format("\n".join(dropped_paths)))
+                return "break"
+            self._pdf_paths = [pdfs[0]]
+            if len(pdfs) > 1:
+                messagebox.showwarning("Warning", self.t["split_drop_truncated"])
+            if not self._output_folder_explicit:
+                self._set_destination(str(Path(self._pdf_paths[0]).parent))
+            self._refresh_listbox()
+            self._update_file_count()
+        return "break"
 
     def _run_action(self) -> None:
         if self.operation == "merge":
@@ -1211,12 +1364,52 @@ class PDFMergerApp:
         del self._pdf_paths[idx]
         self._refresh_listbox()
         self._update_file_count()
+        if not self._pdf_paths and not self._output_folder_explicit:
+            self._set_destination("")
+
+    def _clear_all(self) -> None:
         if not self._pdf_paths:
-            self.folder_var.set("")
-            self.destination_label.config(text="\u2014")
+            return
+        self._pdf_paths.clear()
+        self._refresh_listbox()
+        self._update_file_count()
+        if not self._output_folder_explicit:
+            self._set_destination("")
+
+    def _on_list_press(self, event: tk.Event) -> None:
+        if self.operation != "merge" or not self._pdf_paths:
+            self._drag_index = None
+            return
+        idx = self.file_listbox.nearest(event.y)
+        if 0 <= idx < len(self._pdf_paths):
+            self._drag_index = idx
+            self.file_listbox.selection_clear(0, tk.END)
+            self.file_listbox.selection_set(idx)
+
+    def _on_list_drag(self, event: tk.Event) -> None:
+        if self.operation != "merge":
+            return
+        if self._drag_index is None:
+            return
+        target = self.file_listbox.nearest(event.y)
+        if not 0 <= target < len(self._pdf_paths):
+            return
+        if target == self._drag_index:
+            return
+
+        item = self._pdf_paths.pop(self._drag_index)
+        self._pdf_paths.insert(target, item)
+        self._drag_index = target
+        self._refresh_listbox()
+        self.file_listbox.selection_clear(0, tk.END)
+        self.file_listbox.selection_set(target)
+        self.file_listbox.activate(target)
+
+    def _on_list_release(self, _event: tk.Event) -> None:
+        self._drag_index = None
 
 
 if __name__ == "__main__":
-    app = tk.Tk()
+    app = TkinterDnD.Tk() if TkinterDnD is not None else tk.Tk()
     PDFMergerApp(app)
     app.mainloop()

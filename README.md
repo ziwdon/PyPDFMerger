@@ -6,8 +6,13 @@ A simple GUI application for merging multiple PDF files into one or splitting a 
 
 - Merge mode:
   - Select and merge multiple PDF files into a single PDF
+  - Drag-and-drop PDF files directly into the file list
+  - Duplicate file detection prevents accidental repeated entries
   - Reorder files before merging with Move Up / Move Down
+  - Drag rows in the file list to reorder quickly
   - Remove individual files from the selection
+  - Clear all selected files with one click
+  - Choose an explicit output folder independent of source file location
   - Automatic validation — invalid or unreadable PDFs are skipped with a warning
 - Split mode:
   - Split one PDF by page ranges (for example: `1-3,5,8-10`)
@@ -18,7 +23,7 @@ A simple GUI application for merging multiple PDF files into one or splitting a 
 ## Requirements
 
 - Python 3.8 or later
-- Dependencies listed in `requirements.txt` (`pypdf`, `cx_Freeze`)
+- Dependencies listed in `requirements.txt` (`pypdf`, `cx_Freeze`, `tkinterdnd2`)
 
 ## Setup
 
