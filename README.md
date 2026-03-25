@@ -1,13 +1,18 @@
 # PyPDFMerger
 
-A simple GUI application for merging multiple PDF files into one, built with Python and tkinter.
+A simple GUI application for merging multiple PDF files into one or splitting a PDF into multiple outputs, built with Python and tkinter.
 
 ## Features
 
-- Select and merge multiple PDF files into a single PDF
-- Reorder files before merging with Move Up / Move Down
-- Remove individual files from the selection
-- Automatic validation — invalid or unreadable PDFs are skipped with a warning
+- Merge mode:
+  - Select and merge multiple PDF files into a single PDF
+  - Reorder files before merging with Move Up / Move Down
+  - Remove individual files from the selection
+  - Automatic validation — invalid or unreadable PDFs are skipped with a warning
+- Split mode:
+  - Split one PDF by page ranges (for example: `1-3,5,8-10`)
+  - Split one PDF every N pages
+  - Split one PDF by top-level bookmarks/sections
 - English / Spanish language toggle
 
 ## Requirements
