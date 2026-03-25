@@ -7,6 +7,7 @@ from pathlib import Path
 import pypdf
 import tkinter as tk
 from tkinter import filedialog, messagebox
+from tkinter import font as tkfont
 
 
 # ── PDF logic ─────────────────────────────────────────────────────────────────
@@ -59,35 +60,65 @@ class PDF:
 
 LANG_TEXTS: dict[str, dict[str, str]] = {
     "en": {
-        "select_files":        "Select PDFs",
+        "app_subtitle":        "Combine multiple PDFs into one",
+        "select_files":        "Select PDF Files",
         "merge_pdfs":          "Merge PDFs",
-        "output_name":         "Output PDF Name:",
-        "operation_completed": "Operation completed. PDF saved in \"{}\" as \"{}\".",
+        "output_name":         "Output file name",
+        "operation_completed": "PDF saved successfully in \"{}\" as \"{}\".",
         "no_pdfs":             "No PDF files have been selected.",
-        "move_up":             "Move up",
-        "move_down":           "Move down",
-        "remove_pdf":          "Remove",
+        "move_up":             "\u2191  Move Up",
+        "move_down":           "\u2193  Move Down",
+        "remove_pdf":          "\u00d7  Remove",
         "no_name":             "Please enter a file name.",
         "no_destination":      "No destination folder set. Select at least one PDF first.",
         "file_exists":         "A file with that name already exists in the destination folder.",
         "no_valid_pdfs":       "None of the selected files could be read as valid PDFs.",
-        "some_pdfs_skipped":   "The following files could not be read as valid PDFs and were skipped:\n\n{}",
+        "some_pdfs_skipped":   "Some files were skipped (invalid PDFs):\n\n{}",
+        "files_selected":      "{} file(s) selected",
+        "no_files":            "No files selected",
+        "destination":         "Destination:",
     },
     "es": {
+        "app_subtitle":        "Combina m\u00faltiples PDFs en uno",
         "select_files":        "Seleccionar PDFs",
         "merge_pdfs":          "Unir PDFs",
-        "output_name":         "Nombre del PDF de salida:",
-        "operation_completed": "Operación completada. PDF guardado en \"{}\" como \"{}\".",
+        "output_name":         "Nombre del archivo de salida",
+        "operation_completed": "PDF guardado exitosamente en \"{}\" como \"{}\".",
         "no_pdfs":             "No se han seleccionado archivos PDF.",
-        "move_up":             "Mover hacia arriba",
-        "move_down":           "Mover hacia abajo",
-        "remove_pdf":          "Eliminar",
+        "move_up":             "\u2191  Subir",
+        "move_down":           "\u2193  Bajar",
+        "remove_pdf":          "\u00d7  Eliminar",
         "no_name":             "Por favor, introduzca un nombre de archivo.",
         "no_destination":      "No se ha establecido carpeta de destino. Seleccione al menos un PDF primero.",
         "file_exists":         "Ya existe un archivo con ese nombre en la carpeta de destino.",
-        "no_valid_pdfs":       "Ninguno de los archivos seleccionados pudo leerse como PDF válido.",
-        "some_pdfs_skipped":   "Los siguientes archivos no pudieron leerse como PDF válidos y fueron omitidos:\n\n{}",
+        "no_valid_pdfs":       "Ninguno de los archivos seleccionados pudo leerse como PDF v\u00e1lido.",
+        "some_pdfs_skipped":   "Algunos archivos fueron omitidos (PDFs inv\u00e1lidos):\n\n{}",
+        "files_selected":      "{} archivo(s) seleccionado(s)",
+        "no_files":            "Sin archivos seleccionados",
+        "destination":         "Destino:",
     },
+}
+
+
+# ── Theme ──────────────────────────────────────────────────────────────────────
+
+THEME = {
+    "bg":              "#f5f5f7",
+    "surface":         "#ffffff",
+    "primary":         "#0057d8",
+    "primary_hover":   "#0046b0",
+    "danger":          "#dc2626",
+    "danger_hover":    "#b91c1c",
+    "neutral":         "#6b7280",
+    "neutral_hover":   "#4b5563",
+    "text":            "#1d1d1f",
+    "text_secondary":  "#6e6e73",
+    "border":          "#d2d2d7",
+    "list_bg":         "#ffffff",
+    "list_select":     "#dbeafe",
+    "list_select_fg":  "#1e40af",
+    "entry_bg":        "#ffffff",
+    "entry_focus":     "#0057d8",
 }
 
 
@@ -97,14 +128,35 @@ class PDFMergerApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.title("PDF Merger")
-        self.root.geometry("600x400")
-        self.root.minsize(600, 400)
+        self.root.geometry("700x560")
+        self.root.minsize(580, 480)
+        self.root.configure(bg=THEME["bg"])
+
+        # Full paths tracked separately from listbox display names
+        self._pdf_paths: list[str] = []
 
         self.folder_var = tk.StringVar()
         self.output_name_var = tk.StringVar()
         self.lang_var = tk.StringVar(value="en")
 
+        self._setup_fonts()
         self._build_ui()
+
+    def _setup_fonts(self) -> None:
+        preferred_families = [
+            "Segoe UI", "SF Pro Display", "Helvetica Neue",
+            "Ubuntu", "DejaVu Sans", "Helvetica",
+        ]
+        available = set(tkfont.families())
+        family = next((f for f in preferred_families if f in available), "TkDefaultFont")
+
+        self.font_heading  = tkfont.Font(family=family, size=15, weight="bold")
+        self.font_subtitle = tkfont.Font(family=family, size=9)
+        self.font_label    = tkfont.Font(family=family, size=10)
+        self.font_btn      = tkfont.Font(family=family, size=10, weight="bold")
+        self.font_btn_sm   = tkfont.Font(family=family, size=9)
+        self.font_list     = tkfont.Font(family=family, size=9)
+        self.font_status   = tkfont.Font(family=family, size=8)
 
     @property
     def language(self) -> str:
@@ -115,100 +167,351 @@ class PDFMergerApp:
         """Return the translation dictionary for the current language."""
         return LANG_TEXTS[self.language]
 
+    # ── UI helpers ─────────────────────────────────────────────────────────
+
+    def _styled_btn(
+        self,
+        parent: tk.Widget,
+        text: str,
+        command,
+        bg: str,
+        hover_bg: str,
+        fg: str = "#ffffff",
+        font=None,
+    ) -> tk.Button:
+        """Return a flat, styled button with an enter/leave hover effect."""
+        btn = tk.Button(
+            parent,
+            text=text,
+            command=command,
+            bg=bg,
+            fg=fg,
+            activebackground=hover_bg,
+            activeforeground=fg,
+            relief="flat",
+            borderwidth=0,
+            cursor="hand2",
+            font=font or self.font_btn,
+            padx=14,
+            pady=8,
+        )
+        btn.bind("<Enter>", lambda _e: btn.config(bg=hover_bg))
+        btn.bind("<Leave>", lambda _e: btn.config(bg=bg))
+        return btn
+
+    def _hairline(self, parent: tk.Widget) -> tk.Canvas:
+        """Return a 1-px horizontal separator."""
+        return tk.Canvas(parent, height=1, bg=THEME["border"], highlightthickness=0)
+
     # ── UI construction ────────────────────────────────────────────────────
 
     def _build_ui(self) -> None:
         root = self.root
-        root.grid_columnconfigure(0, weight=1)
-        root.grid_columnconfigure(1, weight=1)
-        root.grid_columnconfigure(2, weight=1)
-        root.grid_rowconfigure(2, weight=1)
 
-        # Language selector
-        frame_lang = tk.Frame(root)
-        frame_lang.grid(row=0, column=0, padx=10, pady=10, sticky="w")
-        tk.Label(frame_lang, text="Language:").pack(side=tk.LEFT, padx=5, pady=10)
-        tk.Radiobutton(
-            frame_lang, text="English", variable=self.lang_var,
-            value="en", command=self._on_language_change,
-        ).pack(side=tk.LEFT, padx=5, pady=10)
-        tk.Radiobutton(
-            frame_lang, text="Español", variable=self.lang_var,
-            value="es", command=self._on_language_change,
-        ).pack(side=tk.LEFT, padx=5, pady=10)
+        # ── Header ──────────────────────────────────────────────────────────
+        header = tk.Frame(root, bg=THEME["surface"])
+        header.pack(fill="x")
+
+        header_inner = tk.Frame(header, bg=THEME["surface"])
+        header_inner.pack(fill="x", padx=24, pady=(16, 14))
+
+        title_row = tk.Frame(header_inner, bg=THEME["surface"])
+        title_row.pack(fill="x")
+
+        tk.Label(
+            title_row,
+            text="PDF Merger",
+            bg=THEME["surface"],
+            fg=THEME["text"],
+            font=self.font_heading,
+        ).pack(side="left")
+
+        # Language toggle buttons (right side of header)
+        lang_frame = tk.Frame(title_row, bg=THEME["surface"])
+        lang_frame.pack(side="right", anchor="center")
+
+        tk.Label(
+            lang_frame,
+            text="Language:",
+            bg=THEME["surface"],
+            fg=THEME["text_secondary"],
+            font=self.font_status,
+        ).pack(side="left", padx=(0, 6))
+
+        self._lang_en_btn = tk.Button(
+            lang_frame, text="EN",
+            command=lambda: self._set_language("en"),
+            font=self.font_btn_sm,
+            relief="flat", borderwidth=0, cursor="hand2",
+            padx=10, pady=4,
+        )
+        self._lang_en_btn.pack(side="left", padx=(0, 3))
+
+        self._lang_es_btn = tk.Button(
+            lang_frame, text="ES",
+            command=lambda: self._set_language("es"),
+            font=self.font_btn_sm,
+            relief="flat", borderwidth=0, cursor="hand2",
+            padx=10, pady=4,
+        )
+        self._lang_es_btn.pack(side="left")
+
+        self.subtitle_label = tk.Label(
+            header_inner,
+            text=self.t["app_subtitle"],
+            bg=THEME["surface"],
+            fg=THEME["text_secondary"],
+            font=self.font_subtitle,
+        )
+        self.subtitle_label.pack(anchor="w", pady=(3, 0))
+
+        self._hairline(root).pack(fill="x")
+
+        # ── Body ────────────────────────────────────────────────────────────
+        body = tk.Frame(root, bg=THEME["bg"])
+        body.pack(fill="both", expand=True, padx=20, pady=16)
 
         # Select files button
-        self.select_files_btn = tk.Button(
-            root, text=self.t["select_files"], command=self._select_files,
+        self.select_files_btn = self._styled_btn(
+            body,
+            text=self.t["select_files"],
+            command=self._select_files,
+            bg=THEME["primary"],
+            hover_bg=THEME["primary_hover"],
         )
-        self.select_files_btn.grid(
-            row=1, column=0, columnspan=3, padx=10, pady=10, sticky="ew",
-        )
+        self.select_files_btn.pack(fill="x", pady=(0, 10))
 
-        # Listbox + scrollbar
-        frame_list = tk.Frame(root)
-        frame_list.grid(row=2, column=0, columnspan=3, padx=10, pady=10, sticky="nsew")
-        scrollbar = tk.Scrollbar(frame_list, orient="vertical")
+        # ── File list card ───────────────────────────────────────────────────
+        list_card = tk.Frame(
+            body,
+            bg=THEME["surface"],
+            highlightbackground=THEME["border"],
+            highlightthickness=1,
+        )
+        list_card.pack(fill="both", expand=True)
+
+        # Card header: file count + action buttons
+        card_header = tk.Frame(list_card, bg=THEME["surface"])
+        card_header.pack(fill="x", padx=12, pady=(10, 8))
+
+        self.files_count_label = tk.Label(
+            card_header,
+            text=self.t["no_files"],
+            bg=THEME["surface"],
+            fg=THEME["text_secondary"],
+            font=self.font_status,
+        )
+        self.files_count_label.pack(side="left")
+
+        btn_bar = tk.Frame(card_header, bg=THEME["surface"])
+        btn_bar.pack(side="right")
+
+        self.move_up_btn = self._styled_btn(
+            btn_bar,
+            text=self.t["move_up"],
+            command=self._move_up,
+            bg=THEME["neutral"],
+            hover_bg=THEME["neutral_hover"],
+            font=self.font_btn_sm,
+        )
+        self.move_up_btn.pack(side="left", padx=(0, 4))
+
+        self.move_down_btn = self._styled_btn(
+            btn_bar,
+            text=self.t["move_down"],
+            command=self._move_down,
+            bg=THEME["neutral"],
+            hover_bg=THEME["neutral_hover"],
+            font=self.font_btn_sm,
+        )
+        self.move_down_btn.pack(side="left", padx=(0, 4))
+
+        self.remove_pdf_btn = self._styled_btn(
+            btn_bar,
+            text=self.t["remove_pdf"],
+            command=self._remove_pdf,
+            bg=THEME["danger"],
+            hover_bg=THEME["danger_hover"],
+            font=self.font_btn_sm,
+        )
+        self.remove_pdf_btn.pack(side="left")
+
+        self._hairline(list_card).pack(fill="x")
+
+        # Listbox with scrollbar
+        list_inner = tk.Frame(list_card, bg=THEME["list_bg"])
+        list_inner.pack(fill="both", expand=True)
+
+        scrollbar = tk.Scrollbar(list_inner, orient="vertical", relief="flat")
         scrollbar.pack(side="right", fill="y")
-        self.file_listbox = tk.Listbox(frame_list, yscrollcommand=scrollbar.set)
-        self.file_listbox.pack(side="left", fill="both", expand=True)
+
+        self.file_listbox = tk.Listbox(
+            list_inner,
+            yscrollcommand=scrollbar.set,
+            bg=THEME["list_bg"],
+            fg=THEME["text"],
+            selectbackground=THEME["list_select"],
+            selectforeground=THEME["list_select_fg"],
+            font=self.font_list,
+            relief="flat",
+            borderwidth=0,
+            highlightthickness=0,
+            activestyle="none",
+        )
+        self.file_listbox.pack(side="left", fill="both", expand=True, padx=8, pady=4)
         scrollbar.config(command=self.file_listbox.yview)
 
-        # List-management buttons
-        btn_frame = tk.Frame(root)
-        btn_frame.grid(row=3, column=0, columnspan=3, padx=10, pady=10, sticky="ew")
-        btn_width = 15
-        self.move_up_btn = tk.Button(
-            btn_frame, text=self.t["move_up"], command=self._move_up, width=btn_width,
-        )
-        self.move_up_btn.pack(side=tk.LEFT, padx=5, pady=10, expand=True, fill=tk.X)
-        self.move_down_btn = tk.Button(
-            btn_frame, text=self.t["move_down"], command=self._move_down, width=btn_width,
-        )
-        self.move_down_btn.pack(side=tk.LEFT, padx=5, pady=10, expand=True, fill=tk.X)
-        self.remove_pdf_btn = tk.Button(
-            btn_frame, text=self.t["remove_pdf"], command=self._remove_pdf, width=btn_width,
-        )
-        self.remove_pdf_btn.pack(side=tk.LEFT, padx=5, pady=10, expand=True, fill=tk.X)
+        # ── Output name ──────────────────────────────────────────────────────
+        output_section = tk.Frame(body, bg=THEME["bg"])
+        output_section.pack(fill="x", pady=(12, 0))
 
-        # Output name
-        self.output_name_label = tk.Label(root, text=self.t["output_name"])
-        self.output_name_label.grid(row=4, column=0, padx=10, pady=10, sticky="e")
-        tk.Entry(root, textvariable=self.output_name_var).grid(
-            row=4, column=1, columnspan=2, padx=10, pady=10, sticky="ew",
+        self.output_name_label = tk.Label(
+            output_section,
+            text=self.t["output_name"],
+            bg=THEME["bg"],
+            fg=THEME["text"],
+            font=self.font_label,
+        )
+        self.output_name_label.pack(anchor="w", pady=(0, 5))
+
+        self._entry_frame = tk.Frame(
+            output_section,
+            bg=THEME["entry_bg"],
+            highlightbackground=THEME["border"],
+            highlightthickness=1,
+        )
+        self._entry_frame.pack(fill="x")
+
+        self.output_entry = tk.Entry(
+            self._entry_frame,
+            textvariable=self.output_name_var,
+            bg=THEME["entry_bg"],
+            fg=THEME["text"],
+            relief="flat",
+            borderwidth=0,
+            font=self.font_label,
+            insertbackground=THEME["text"],
+        )
+        self.output_entry.pack(fill="x", padx=10, pady=8)
+        self.output_entry.bind(
+            "<FocusIn>",
+            lambda _e: self._entry_frame.config(
+                highlightbackground=THEME["entry_focus"], highlightthickness=2
+            ),
+        )
+        self.output_entry.bind(
+            "<FocusOut>",
+            lambda _e: self._entry_frame.config(
+                highlightbackground=THEME["border"], highlightthickness=1
+            ),
         )
 
-        # Merge button
-        self.merge_pdfs_btn = tk.Button(
-            root, text=self.t["merge_pdfs"], command=self._merge_pdfs,
+        # ── Merge button ─────────────────────────────────────────────────────
+        self.merge_pdfs_btn = self._styled_btn(
+            body,
+            text=self.t["merge_pdfs"],
+            command=self._merge_pdfs,
+            bg=THEME["primary"],
+            hover_bg=THEME["primary_hover"],
         )
-        self.merge_pdfs_btn.grid(
-            row=5, column=0, columnspan=3, padx=10, pady=10, sticky="ew",
+        self.merge_pdfs_btn.pack(fill="x", pady=(12, 0))
+
+        # ── Status bar ───────────────────────────────────────────────────────
+        self._hairline(root).pack(fill="x")
+
+        status_bar = tk.Frame(root, bg=THEME["surface"])
+        status_bar.pack(fill="x")
+
+        status_inner = tk.Frame(status_bar, bg=THEME["surface"])
+        status_inner.pack(fill="x", padx=20, pady=6)
+
+        self._dest_key_label = tk.Label(
+            status_inner,
+            text=self.t["destination"],
+            bg=THEME["surface"],
+            fg=THEME["text_secondary"],
+            font=self.font_status,
         )
+        self._dest_key_label.pack(side="left")
+
+        self.destination_label = tk.Label(
+            status_inner,
+            text="\u2014",
+            bg=THEME["surface"],
+            fg=THEME["text_secondary"],
+            font=self.font_status,
+        )
+        self.destination_label.pack(side="left", padx=(4, 0))
+
+        self._update_lang_buttons()
+
+    # ── Internal helpers ───────────────────────────────────────────────────
+
+    def _update_lang_buttons(self) -> None:
+        lang = self.language
+        for btn, code in ((self._lang_en_btn, "en"), (self._lang_es_btn, "es")):
+            if lang == code:
+                btn.config(
+                    bg=THEME["primary"],
+                    fg="#ffffff",
+                    activebackground=THEME["primary_hover"],
+                    activeforeground="#ffffff",
+                )
+                btn.unbind("<Enter>")
+                btn.unbind("<Leave>")
+            else:
+                btn.config(
+                    bg=THEME["surface"],
+                    fg=THEME["text_secondary"],
+                    activebackground=THEME["bg"],
+                    activeforeground=THEME["text_secondary"],
+                )
+                btn.bind("<Enter>", lambda _e, b=btn: b.config(bg=THEME["bg"]))
+                btn.bind("<Leave>", lambda _e, b=btn: b.config(bg=THEME["surface"]))
+
+    def _update_file_count(self) -> None:
+        n = len(self._pdf_paths)
+        text = self.t["no_files"] if n == 0 else self.t["files_selected"].format(n)
+        self.files_count_label.config(text=text)
+
+    def _refresh_listbox(self) -> None:
+        """Repopulate the listbox from *_pdf_paths*, showing only file names."""
+        self.file_listbox.delete(0, tk.END)
+        for path in self._pdf_paths:
+            self.file_listbox.insert(tk.END, f"  {Path(path).name}")
 
     # ── Event handlers ─────────────────────────────────────────────────────
 
+    def _set_language(self, lang: str) -> None:
+        self.lang_var.set(lang)
+        self._on_language_change()
+
     def _on_language_change(self) -> None:
+        self.subtitle_label.config(text=self.t["app_subtitle"])
         self.select_files_btn.config(text=self.t["select_files"])
         self.merge_pdfs_btn.config(text=self.t["merge_pdfs"])
         self.move_up_btn.config(text=self.t["move_up"])
         self.move_down_btn.config(text=self.t["move_down"])
         self.output_name_label.config(text=self.t["output_name"])
         self.remove_pdf_btn.config(text=self.t["remove_pdf"])
+        self._dest_key_label.config(text=self.t["destination"])
+        self._update_lang_buttons()
+        self._update_file_count()
 
     def _select_files(self) -> None:
         pdf_files = filedialog.askopenfilenames(filetypes=[("PDF files", "*.pdf")])
         if not pdf_files:
             return  # user cancelled the dialog
         self.folder_var.set(str(Path(pdf_files[0]).parent))
-        self.file_listbox.delete(0, tk.END)
-        for pdf in pdf_files:
-            self.file_listbox.insert(tk.END, pdf)
+        self._pdf_paths = list(pdf_files)
+        self._refresh_listbox()
+        self._update_file_count()
+        self.destination_label.config(text=self.folder_var.get())
 
     def _merge_pdfs(self) -> None:
         destination = self.folder_var.get()
         raw_name = self.output_name_var.get().strip()
-        files = list(self.file_listbox.get(0, tk.END))
+        files = self._pdf_paths
 
         if not files:
             messagebox.showerror("Error", self.t["no_pdfs"])
@@ -256,31 +559,40 @@ class PDFMergerApp:
     def _move_up(self) -> None:
         try:
             idx = self.file_listbox.curselection()[0]
-            if idx > 0:
-                item = self.file_listbox.get(idx)
-                self.file_listbox.delete(idx)
-                self.file_listbox.insert(idx - 1, item)
-                self.file_listbox.selection_set(idx - 1)
         except IndexError:
-            pass
+            return
+        if idx > 0:
+            self._pdf_paths[idx - 1], self._pdf_paths[idx] = (
+                self._pdf_paths[idx],
+                self._pdf_paths[idx - 1],
+            )
+            self._refresh_listbox()
+            self.file_listbox.selection_set(idx - 1)
 
     def _move_down(self) -> None:
         try:
             idx = self.file_listbox.curselection()[0]
-            if idx < self.file_listbox.size() - 1:
-                item = self.file_listbox.get(idx)
-                self.file_listbox.delete(idx)
-                self.file_listbox.insert(idx + 1, item)
-                self.file_listbox.selection_set(idx + 1)
         except IndexError:
-            pass
+            return
+        if idx < len(self._pdf_paths) - 1:
+            self._pdf_paths[idx], self._pdf_paths[idx + 1] = (
+                self._pdf_paths[idx + 1],
+                self._pdf_paths[idx],
+            )
+            self._refresh_listbox()
+            self.file_listbox.selection_set(idx + 1)
 
     def _remove_pdf(self) -> None:
         try:
             idx = self.file_listbox.curselection()[0]
-            self.file_listbox.delete(idx)
         except IndexError:
-            pass
+            return
+        del self._pdf_paths[idx]
+        self._refresh_listbox()
+        self._update_file_count()
+        if not self._pdf_paths:
+            self.folder_var.set("")
+            self.destination_label.config(text="\u2014")
 
 
 if __name__ == "__main__":
