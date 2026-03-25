@@ -1,16 +1,29 @@
+# PyPDFMerger
 
-**Description**  
-Simple Python app to merge multiple PDF files into a single one.
+A simple GUI application for merging multiple PDF files into one, built with Python and tkinter.
 
-**Setup**
+## Features
 
-1. **Clone the Repository**:
+- Select and merge multiple PDF files into a single PDF
+- Reorder files before merging with Move Up / Move Down
+- Remove individual files from the selection
+- Automatic validation — invalid or unreadable PDFs are skipped with a warning
+- English / Spanish language toggle
+
+## Requirements
+
+- Python 3.8 or later
+- Dependencies listed in `requirements.txt` (`pypdf`, `cx_Freeze`)
+
+## Setup
+
+1. **Clone the repository**:
    ```sh
    git clone <repository-url>
    cd PyPDFMerger
    ```
 
-2. **Create and Activate Virtual Environment**:
+2. **Create and activate a virtual environment**:
    ```sh
    python -m venv myenv
    # Windows
@@ -19,24 +32,34 @@ Simple Python app to merge multiple PDF files into a single one.
    source myenv/bin/activate
    ```
 
-3. **Install Dependencies**:
+3. **Install dependencies**:
    ```sh
    pip install -r requirements.txt
    ```
 
-4. **If using VS Code**:
-   - Open the project folder in VS Code.
-   - VS Code should automatically detect and use the virtual environment.
-   
-     If VS Code does not automatically detect the virtual environment, you can manually select it:
-     - Open the command palette (`Ctrl+Shift+P` or `Cmd+Shift+P` on macOS).
-     - Type `Python: Select Interpreter` and select the interpreter located in your virtual environment (`./myenv/Scripts/python` for Windows or `./myenv/bin/python` for macOS/Linux).
+## Usage
 
-**Usage**  
-Debug the project, or generate an executable file and run the PyPDFMergerGUI.exe in the build folder.
+### Run directly
 
-- **To generate an executable file**:
-  ```sh
-  pip install cx-Freeze
-  python setup.py build
-  ```
+```sh
+python PyPDFMerger/PyPDFMergerGUI.pyw
+```
+
+> On Windows you can also double-click the `.pyw` file to launch the app without a console window.
+
+### Build a standalone executable (Windows only)
+
+```sh
+python setup.py build
+```
+
+The executable `PyPDFMerger.exe` will be placed inside the generated `build/` folder.
+
+## VS Code
+
+Open the project folder in VS Code. VS Code should automatically detect and activate the virtual environment.
+
+If it does not, select the interpreter manually:
+
+- Open the command palette (`Ctrl+Shift+P`, or `Cmd+Shift+P` on macOS).
+- Choose **Python: Select Interpreter** and pick the interpreter inside your virtual environment (`./myenv/Scripts/python` on Windows or `./myenv/bin/python` on macOS/Linux).
