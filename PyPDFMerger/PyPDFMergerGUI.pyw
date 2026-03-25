@@ -13,8 +13,11 @@ from tkinter import filedialog, messagebox
 
 class PDF:
     @staticmethod
-    def merge(pdfs: list[str], output_path: Path) -> None:
+    def merge(pdfs: list[str], output_path: Path) -> list[str]:
         """Merge *pdfs* into *output_path*.
+
+        Returns a list of file paths that were skipped because they could
+        not be read as valid PDFs.
 
         Raises:
             FileExistsError: if *output_path* already exists.
@@ -23,18 +26,23 @@ class PDF:
         if output_path.exists():
             raise FileExistsError(str(output_path))
 
-        writer = pypdf.PdfWriter()
+        skipped: list[str] = []
         valid_count = 0
-        for pdf in pdfs:
-            if PDF.validate(pdf):
-                writer.append(pdf)
-                valid_count += 1
+        with pypdf.PdfWriter() as writer:
+            for pdf in pdfs:
+                if PDF.validate(pdf):
+                    writer.append(pdf)
+                    valid_count += 1
+                else:
+                    skipped.append(pdf)
 
-        if valid_count == 0:
-            raise ValueError("No valid PDF files to merge.")
+            if valid_count == 0:
+                raise ValueError("No valid PDF files to merge.")
 
-        with open(output_path, "wb") as fh:
-            writer.write(fh)
+            with open(output_path, "wb") as fh:
+                writer.write(fh)
+
+        return skipped
 
     @staticmethod
     def validate(pdf: str) -> bool:
@@ -63,6 +71,7 @@ LANG_TEXTS: dict[str, dict[str, str]] = {
         "no_destination":      "No destination folder set. Select at least one PDF first.",
         "file_exists":         "A file with that name already exists in the destination folder.",
         "no_valid_pdfs":       "None of the selected files could be read as valid PDFs.",
+        "some_pdfs_skipped":   "The following files could not be read as valid PDFs and were skipped:\n\n{}",
     },
     "es": {
         "select_files":        "Seleccionar PDFs",
@@ -77,6 +86,7 @@ LANG_TEXTS: dict[str, dict[str, str]] = {
         "no_destination":      "No se ha establecido carpeta de destino. Seleccione al menos un PDF primero.",
         "file_exists":         "Ya existe un archivo con ese nombre en la carpeta de destino.",
         "no_valid_pdfs":       "Ninguno de los archivos seleccionados pudo leerse como PDF válido.",
+        "some_pdfs_skipped":   "Los siguientes archivos no pudieron leerse como PDF válidos y fueron omitidos:\n\n{}",
     },
 }
 
@@ -223,7 +233,7 @@ class PDFMergerApp:
         output_path = Path(destination) / pdfname
 
         try:
-            PDF.merge(files, output_path)
+            skipped = PDF.merge(files, output_path)
         except FileExistsError:
             messagebox.showerror("Error", self.t["file_exists"])
             return
@@ -233,6 +243,10 @@ class PDFMergerApp:
         except OSError as exc:
             messagebox.showerror("Error", str(exc))
             return
+
+        if skipped:
+            skipped_names = "\n".join(Path(f).name for f in skipped)
+            messagebox.showwarning("Warning", self.t["some_pdfs_skipped"].format(skipped_names))
 
         messagebox.showinfo(
             "Success",
