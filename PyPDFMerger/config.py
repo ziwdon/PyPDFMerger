@@ -1,2 +1,1 @@
-PDFDir = r'pdfs'
-PDFResultName = r'PDFMerged.pdf'
+# Reserved for future application configuration.
