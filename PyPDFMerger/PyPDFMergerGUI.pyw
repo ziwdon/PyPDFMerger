@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import io
+import queue
 from pathlib import Path
 import re
+import threading
+from typing import Callable
 from urllib.parse import unquote, urlparse
 
 import pypdf
 import tkinter as tk
-from tkinter import filedialog, messagebox
+from tkinter import filedialog, messagebox, simpledialog, ttk
 from tkinter import font as tkfont
 
 try:
@@ -23,7 +26,12 @@ except ImportError:  # pragma: no cover - optional dependency at runtime
 
 class PDF:
     @staticmethod
-    def merge(pdfs: list[str], output_path: Path) -> list[str]:
+    def merge(
+        pdfs: list[str],
+        output_path: Path,
+        passwords: dict[str, str] | None = None,
+        progress_callback: Callable[[int, int, str], None] | None = None,
+    ) -> list[str]:
         """Merge *pdfs* into *output_path*.
 
         Returns a list of file paths that were skipped because they could
@@ -38,19 +46,43 @@ class PDF:
 
         skipped: list[str] = []
         valid_count = 0
+        total_steps = len(pdfs) + 1
+        passwords = passwords or {}
         with pypdf.PdfWriter() as writer:
-            for pdf in pdfs:
-                if PDF.validate(pdf):
-                    writer.append(pdf)
-                    valid_count += 1
-                else:
+            for index, pdf in enumerate(pdfs, start=1):
+                try:
+                    reader = PDF._open_reader(pdf, password=passwords.get(pdf))
+                except ValueError as exc:
+                    if str(exc) == "invalid_source_pdf":
+                        skipped.append(pdf)
+                        if progress_callback is not None:
+                            progress_callback(index, total_steps, "processing")
+                        continue
+                    raise
+                except OSError:
                     skipped.append(pdf)
+                    if progress_callback is not None:
+                        progress_callback(index, total_steps, "processing")
+                    continue
+
+                try:
+                    writer.append(reader)
+                    valid_count += 1
+                except Exception:
+                    skipped.append(pdf)
+
+                if progress_callback is not None:
+                    progress_callback(index, total_steps, "processing")
 
             if valid_count == 0:
                 raise ValueError("no_valid_pdfs")
 
+            if progress_callback is not None:
+                progress_callback(total_steps - 1, total_steps, "writing")
             with open(output_path, "wb") as fh:
                 writer.write(fh)
+            if progress_callback is not None:
+                progress_callback(total_steps, total_steps, "done")
 
         return skipped
 
@@ -60,9 +92,11 @@ class PDF:
         output_dir: Path,
         output_stem: str,
         ranges_spec: str,
+        password: str | None = None,
+        progress_callback: Callable[[int, int, str], None] | None = None,
     ) -> list[Path]:
         """Split *source_pdf* into one file per page range expression."""
-        reader = PDF._open_reader(source_pdf)
+        reader = PDF._open_reader(source_pdf, password=password)
         total_pages = len(reader.pages)
         page_ranges = PDF._parse_page_ranges(ranges_spec, total_pages)
 
@@ -75,7 +109,7 @@ class PDF:
             output_paths.append(output_dir / filename)
 
         PDF._ensure_outputs_do_not_exist(output_paths)
-        PDF._write_ranges(reader, page_ranges, output_paths)
+        PDF._write_ranges(reader, page_ranges, output_paths, progress_callback=progress_callback)
         return output_paths
 
     @staticmethod
@@ -84,12 +118,14 @@ class PDF:
         output_dir: Path,
         output_stem: str,
         chunk_size: int,
+        password: str | None = None,
+        progress_callback: Callable[[int, int, str], None] | None = None,
     ) -> list[Path]:
         """Split *source_pdf* into chunks of *chunk_size* pages."""
         if chunk_size <= 0:
             raise ValueError("invalid_chunk_size")
 
-        reader = PDF._open_reader(source_pdf)
+        reader = PDF._open_reader(source_pdf, password=password)
         total_pages = len(reader.pages)
         if total_pages == 0:
             raise ValueError("invalid_source_pdf")
@@ -109,7 +145,7 @@ class PDF:
             output_paths.append(output_dir / filename)
 
         PDF._ensure_outputs_do_not_exist(output_paths)
-        PDF._write_ranges(reader, page_ranges, output_paths)
+        PDF._write_ranges(reader, page_ranges, output_paths, progress_callback=progress_callback)
         return output_paths
 
     @staticmethod
@@ -117,9 +153,11 @@ class PDF:
         source_pdf: str,
         output_dir: Path,
         output_stem: str,
+        password: str | None = None,
+        progress_callback: Callable[[int, int, str], None] | None = None,
     ) -> list[Path]:
         """Split *source_pdf* by top-level bookmarks / sections."""
-        reader = PDF._open_reader(source_pdf)
+        reader = PDF._open_reader(source_pdf, password=password)
         total_pages = len(reader.pages)
 
         sections = PDF._collect_bookmark_sections(reader)
@@ -150,7 +188,7 @@ class PDF:
             raise ValueError("no_bookmarks_found")
 
         PDF._ensure_outputs_do_not_exist(output_paths)
-        PDF._write_ranges(reader, page_ranges, output_paths)
+        PDF._write_ranges(reader, page_ranges, output_paths, progress_callback=progress_callback)
         return output_paths
 
     @staticmethod
@@ -170,19 +208,64 @@ class PDF:
     def validate(pdf: str) -> bool:
         """Return *True* if *pdf* can be opened and read as a valid PDF."""
         try:
-            with open(pdf, "rb") as fh:
-                pypdf.PdfReader(fh, strict=False)
+            reader = PDF._load_reader(pdf)
+            if reader.is_encrypted:
+                return True
+            _ = len(reader.pages)
             return True
-        except (pypdf.errors.PdfReadError, pypdf.errors.EmptyFileError, OSError):
+        except ValueError:
+            return False
+        except Exception:
             return False
 
     @staticmethod
-    def _open_reader(pdf: str) -> pypdf.PdfReader:
-        if not PDF.validate(pdf):
-            raise ValueError("invalid_source_pdf")
-        data = Path(pdf).read_bytes()
-        reader = pypdf.PdfReader(io.BytesIO(data), strict=False)
-        _ = len(reader.pages)
+    def is_encrypted(pdf: str) -> bool:
+        """Return True when *pdf* is password protected."""
+        try:
+            return bool(PDF._load_reader(pdf).is_encrypted)
+        except ValueError:
+            return False
+
+    @staticmethod
+    def check_password(pdf: str, password: str) -> bool:
+        """Return True if *password* successfully decrypts *pdf*."""
+        try:
+            PDF._open_reader(pdf, password=password)
+            return True
+        except ValueError as exc:
+            if str(exc) == "invalid_pdf_password":
+                return False
+            raise
+
+    @staticmethod
+    def _load_reader(pdf: str) -> pypdf.PdfReader:
+        try:
+            data = Path(pdf).read_bytes()
+        except OSError as exc:
+            raise ValueError("invalid_source_pdf") from exc
+        try:
+            return pypdf.PdfReader(io.BytesIO(data), strict=False)
+        except (pypdf.errors.PdfReadError, pypdf.errors.EmptyFileError) as exc:
+            raise ValueError("invalid_source_pdf") from exc
+
+    @staticmethod
+    def _open_reader(pdf: str, password: str | None = None) -> pypdf.PdfReader:
+        reader = PDF._load_reader(pdf)
+        if reader.is_encrypted:
+            if password is None:
+                raise ValueError("encrypted_pdf")
+            try:
+                decrypted = reader.decrypt(password)
+            except Exception as exc:
+                raise ValueError("invalid_pdf_password") from exc
+            if not decrypted:
+                raise ValueError("invalid_pdf_password")
+        try:
+            _ = len(reader.pages)
+        except Exception as exc:
+            if reader.is_encrypted:
+                raise ValueError("invalid_pdf_password") from exc
+            raise ValueError("invalid_source_pdf") from exc
         return reader
 
     @staticmethod
@@ -299,13 +382,17 @@ class PDF:
         reader: pypdf.PdfReader,
         page_ranges: list[tuple[int, int]],
         output_paths: list[Path],
+        progress_callback: Callable[[int, int, str], None] | None = None,
     ) -> None:
-        for (start, end), output_path in zip(page_ranges, output_paths):
+        total = len(output_paths)
+        for index, ((start, end), output_path) in enumerate(zip(page_ranges, output_paths), start=1):
             writer = pypdf.PdfWriter()
             for page_index in range(start - 1, end):
                 writer.add_page(reader.pages[page_index])
             with open(output_path, "wb") as fh:
                 writer.write(fh)
+            if progress_callback is not None:
+                progress_callback(index, total, "processing")
 
 
 # ── Localisation ──────────────────────────────────────────────────────────────
@@ -360,6 +447,16 @@ LANG_TEXTS: dict[str, dict[str, str]] = {
         "files_selected":          "{} file(s) selected",
         "no_files":                "No files selected",
         "destination":             "Destination:",
+        "working_merge":           "Merging PDFs...",
+        "working_split":           "Splitting PDF...",
+        "progress_processing":     "Processing {} of {}",
+        "progress_writing":        "Writing output file...",
+        "progress_done":           "Completed",
+        "encrypted_prompt_title":  "PDF password required",
+        "encrypted_prompt":        "Enter password for:\n{}",
+        "wrong_password":          "Incorrect password for:\n{}",
+        "password_cancelled":      "Operation cancelled. Password was not provided.",
+        "ui_busy_hint":            "Please wait while the operation completes.",
     },
     "es": {
         "app_title":               "PDF Merger",
@@ -410,6 +507,16 @@ LANG_TEXTS: dict[str, dict[str, str]] = {
         "files_selected":          "{} archivo(s) seleccionado(s)",
         "no_files":                "Sin archivos seleccionados",
         "destination":             "Destino:",
+        "working_merge":           "Uniendo PDFs...",
+        "working_split":           "Dividiendo PDF...",
+        "progress_processing":     "Procesando {} de {}",
+        "progress_writing":        "Escribiendo archivo de salida...",
+        "progress_done":           "Completado",
+        "encrypted_prompt_title":  "Se requiere contraseña del PDF",
+        "encrypted_prompt":        "Introduzca la contraseña para:\n{}",
+        "wrong_password":          "Contraseña incorrecta para:\n{}",
+        "password_cancelled":      "Operación cancelada. No se proporcionó contraseña.",
+        "ui_busy_hint":            "Espere mientras finaliza la operación.",
     },
 }
 
@@ -458,6 +565,10 @@ class PDFMergerApp:
         self.split_mode_var = tk.StringVar(value="range")
         self.split_ranges_var = tk.StringVar()
         self.split_every_n_var = tk.StringVar(value="1")
+        self._worker_queue: queue.Queue[tuple[str, object]] = queue.Queue()
+        self._active_worker: threading.Thread | None = None
+        self._is_processing = False
+        self._password_cache: dict[str, str] = {}
 
         self._setup_fonts()
         self._build_ui()
@@ -965,6 +1076,35 @@ class PDFMergerApp:
         )
         self.run_action_btn.pack(fill="x", pady=(12, 0))
 
+        self._progress_frame = tk.Frame(body, bg=THEME["bg"])
+        self.processing_status_label = tk.Label(
+            self._progress_frame,
+            text="",
+            bg=THEME["bg"],
+            fg=THEME["text_secondary"],
+            font=self.font_status,
+            anchor="w",
+        )
+        self.processing_status_label.pack(fill="x")
+        self.progress_var = tk.DoubleVar(value=0.0)
+        self.processing_progress = ttk.Progressbar(
+            self._progress_frame,
+            orient="horizontal",
+            mode="determinate",
+            variable=self.progress_var,
+            maximum=100.0,
+        )
+        self.processing_progress.pack(fill="x", pady=(4, 0))
+        self.processing_progress_label = tk.Label(
+            self._progress_frame,
+            text="",
+            bg=THEME["bg"],
+            fg=THEME["text_secondary"],
+            font=self.font_status,
+            anchor="w",
+        )
+        self.processing_progress_label.pack(fill="x", pady=(2, 0))
+
         # ── Status bar ───────────────────────────────────────────────────────
         self._hairline(root).pack(fill="x")
 
@@ -1118,8 +1258,9 @@ class PDFMergerApp:
         )
 
         if merge_mode:
-            self.move_up_btn.config(state="normal")
-            self.move_down_btn.config(state="normal")
+            move_state = "disabled" if self._is_processing else "normal"
+            self.move_up_btn.config(state=move_state)
+            self.move_down_btn.config(state=move_state)
             if self.split_options_card.winfo_ismapped():
                 self.split_options_card.pack_forget()
         else:
@@ -1154,6 +1295,9 @@ class PDFMergerApp:
         self.split_bookmarks_rb.config(text=self.t["split_by_bookmarks"])
         self.ranges_label.config(text=self.t["ranges_label"])
         self.every_n_label.config(text=self.t["every_n_label"])
+        self.processing_status_label.config(
+            text=self.t["ui_busy_hint"] if self._is_processing else ""
+        )
 
         self._update_lang_buttons()
         self._update_mode_ui()
@@ -1184,6 +1328,8 @@ class PDFMergerApp:
             self.split_hint_label.config(text=self.t["split_hint_bookmarks"])
 
     def _select_files(self) -> None:
+        if self._is_processing:
+            return
         if self.operation == "merge":
             selected = filedialog.askopenfilenames(filetypes=[("PDF files", "*.pdf")])
             if not selected:
@@ -1200,6 +1346,8 @@ class PDFMergerApp:
             self._update_file_count()
 
     def _choose_output_folder(self) -> None:
+        if self._is_processing:
+            return
         initial = self.folder_var.get() or str(Path.home())
         folder = filedialog.askdirectory(initialdir=initial)
         if not folder:
@@ -1207,6 +1355,8 @@ class PDFMergerApp:
         self._set_destination(folder, explicit=True)
 
     def _on_external_drop(self, event) -> str:
+        if self._is_processing:
+            return "break"
         dropped_paths = self._parse_drop_paths(event.data)
         if not dropped_paths:
             return "break"
@@ -1228,6 +1378,8 @@ class PDFMergerApp:
         return "break"
 
     def _run_action(self) -> None:
+        if self._is_processing:
+            return
         if self.operation == "merge":
             self._merge_pdfs()
         else:
@@ -1259,28 +1411,31 @@ class PDFMergerApp:
             return
 
         output_path = Path(destination) / pdfname
-
-        try:
-            skipped = PDF.merge(files, output_path)
-        except FileExistsError:
+        if output_path.exists():
             messagebox.showerror("Error", self.t["file_exists"])
             return
-        except ValueError as exc:
-            key = str(exc)
-            messagebox.showerror("Error", self.t.get(key, self.t["no_valid_pdfs"]))
-            return
-        except OSError as exc:
-            messagebox.showerror("Error", str(exc))
+        passwords = self._resolve_passwords_for_merge(files)
+        if passwords is None:
             return
 
-        if skipped:
-            skipped_names = "\n".join(Path(f).name for f in skipped)
-            messagebox.showwarning("Warning", self.t["some_pdfs_skipped"].format(skipped_names))
+        def worker(emit) -> dict[str, object]:
+            try:
+                skipped = PDF.merge(
+                    files,
+                    output_path,
+                    passwords=passwords,
+                    progress_callback=emit,
+                )
+            except FileExistsError as exc:
+                raise ValueError("file_exists") from exc
+            return {
+                "type": "merge",
+                "skipped": skipped,
+                "destination": destination,
+                "pdfname": pdfname,
+            }
 
-        messagebox.showinfo(
-            "Success",
-            self.t["operation_completed"].format(destination, pdfname),
-        )
+        self._start_background_job(worker, self.t["working_merge"])
 
     def _split_pdf(self) -> None:
         files = self._pdf_paths
@@ -1297,40 +1452,61 @@ class PDFMergerApp:
         source_stem = Path(source_pdf).stem
         output_stem = PDF.build_output_stem(self.output_name_var.get(), source_stem)
         output_dir = Path(destination)
-
-        try:
-            if self.split_mode == "range":
-                created = PDF.split_by_ranges(
-                    source_pdf,
-                    output_dir,
-                    output_stem,
-                    self.split_ranges_var.get(),
-                )
-            elif self.split_mode == "every_n":
-                try:
-                    chunk_size = int(self.split_every_n_var.get().strip())
-                except ValueError:
-                    raise ValueError("invalid_chunk_size") from None
-                created = PDF.split_every_n(source_pdf, output_dir, output_stem, chunk_size)
-            else:
-                created = PDF.split_by_bookmarks(source_pdf, output_dir, output_stem)
-        except FileExistsError as exc:
-            messagebox.showerror("Error", self.t["split_file_exists"].format(Path(str(exc)).name))
-            return
-        except ValueError as exc:
-            key = str(exc)
-            messagebox.showerror("Error", self.t.get(key, key))
-            return
-        except OSError as exc:
-            messagebox.showerror("Error", str(exc))
+        password = self._resolve_password_for_split(source_pdf)
+        if password is None:
             return
 
-        messagebox.showinfo(
-            "Success",
-            self.t["split_completed"].format(len(created), destination),
-        )
+        mode = self.split_mode
+        ranges_value = self.split_ranges_var.get()
+        every_n_value = self.split_every_n_var.get().strip()
+
+        def worker(emit) -> dict[str, object]:
+            try:
+                if mode == "range":
+                    created = PDF.split_by_ranges(
+                        source_pdf,
+                        output_dir,
+                        output_stem,
+                        ranges_value,
+                        password=password if isinstance(password, str) else None,
+                        progress_callback=emit,
+                    )
+                elif mode == "every_n":
+                    try:
+                        chunk_size = int(every_n_value)
+                    except ValueError:
+                        raise ValueError("invalid_chunk_size") from None
+                    created = PDF.split_every_n(
+                        source_pdf,
+                        output_dir,
+                        output_stem,
+                        chunk_size,
+                        password=password if isinstance(password, str) else None,
+                        progress_callback=emit,
+                    )
+                else:
+                    created = PDF.split_by_bookmarks(
+                        source_pdf,
+                        output_dir,
+                        output_stem,
+                        password=password if isinstance(password, str) else None,
+                        progress_callback=emit,
+                    )
+            except FileExistsError as exc:
+                raise ValueError(
+                    f"split_file_exists::{Path(str(exc)).name}"
+                ) from exc
+            return {
+                "type": "split",
+                "created_count": len(created),
+                "destination": destination,
+            }
+
+        self._start_background_job(worker, self.t["working_split"])
 
     def _move_up(self) -> None:
+        if self._is_processing:
+            return
         try:
             idx = self.file_listbox.curselection()[0]
         except IndexError:
@@ -1344,6 +1520,8 @@ class PDFMergerApp:
             self.file_listbox.selection_set(idx - 1)
 
     def _move_down(self) -> None:
+        if self._is_processing:
+            return
         try:
             idx = self.file_listbox.curselection()[0]
         except IndexError:
@@ -1357,6 +1535,8 @@ class PDFMergerApp:
             self.file_listbox.selection_set(idx + 1)
 
     def _remove_pdf(self) -> None:
+        if self._is_processing:
+            return
         try:
             idx = self.file_listbox.curselection()[0]
         except IndexError:
@@ -1368,6 +1548,8 @@ class PDFMergerApp:
             self._set_destination("")
 
     def _clear_all(self) -> None:
+        if self._is_processing:
+            return
         if not self._pdf_paths:
             return
         self._pdf_paths.clear()
@@ -1377,6 +1559,9 @@ class PDFMergerApp:
             self._set_destination("")
 
     def _on_list_press(self, event: tk.Event) -> None:
+        if self._is_processing:
+            self._drag_index = None
+            return
         if self.operation != "merge" or not self._pdf_paths:
             self._drag_index = None
             return
@@ -1387,6 +1572,8 @@ class PDFMergerApp:
             self.file_listbox.selection_set(idx)
 
     def _on_list_drag(self, event: tk.Event) -> None:
+        if self._is_processing:
+            return
         if self.operation != "merge":
             return
         if self._drag_index is None:
@@ -1407,6 +1594,183 @@ class PDFMergerApp:
 
     def _on_list_release(self, _event: tk.Event) -> None:
         self._drag_index = None
+
+    def _set_processing_state(self, is_processing: bool, status_text: str = "") -> None:
+        self._is_processing = is_processing
+        controls = [
+            self.select_files_btn,
+            self.choose_output_btn,
+            self.move_up_btn,
+            self.move_down_btn,
+            self.remove_pdf_btn,
+            self.clear_all_btn,
+            self.run_action_btn,
+            self.mode_merge_rb,
+            self.mode_split_rb,
+            self.split_range_rb,
+            self.split_every_n_rb,
+            self.split_bookmarks_rb,
+            self.ranges_entry,
+            self.every_n_entry,
+            self.output_entry,
+            self._lang_en_btn,
+            self._lang_es_btn,
+        ]
+        state = "disabled" if is_processing else "normal"
+        for control in controls:
+            control.config(state=state)
+        if is_processing:
+            self.processing_status_label.config(text=status_text or self.t["ui_busy_hint"])
+            self.processing_progress_label.config(text=self.t["progress_processing"].format(0, 0))
+            self.progress_var.set(0.0)
+            self.processing_progress.configure(mode="determinate")
+            self._progress_frame.pack(fill="x", pady=(8, 0), before=self.output_section)
+        else:
+            self._update_mode_ui()
+            self._on_split_mode_change()
+            self.processing_status_label.config(text="")
+            self.processing_progress_label.config(text="")
+            self.progress_var.set(0.0)
+            self._progress_frame.pack_forget()
+
+    def _on_worker_progress(self, current: int, total: int, stage: str) -> None:
+        if total <= 0:
+            self.progress_var.set(0.0)
+            return
+        self.progress_var.set((current / total) * 100.0)
+        if stage == "writing":
+            self.processing_progress_label.config(text=self.t["progress_writing"])
+        elif stage == "done":
+            self.processing_progress_label.config(text=self.t["progress_done"])
+        else:
+            self.processing_progress_label.config(
+                text=self.t["progress_processing"].format(current, total)
+            )
+
+    def _poll_worker_queue(self) -> None:
+        try:
+            while True:
+                event, payload = self._worker_queue.get_nowait()
+                if event == "progress":
+                    self._on_worker_progress(*payload)
+                elif event == "done":
+                    self._set_processing_state(False)
+                    self._active_worker = None
+                    self._handle_worker_result(payload)
+                    return
+                elif event == "error":
+                    self._set_processing_state(False)
+                    self._active_worker = None
+                    self._handle_worker_error(str(payload))
+                    return
+        except queue.Empty:
+            pass
+        if self._active_worker is not None:
+            self.root.after(80, self._poll_worker_queue)
+
+    def _handle_worker_result(self, payload: dict[str, object]) -> None:
+        op_type = payload.get("type")
+        if op_type == "merge":
+            skipped = payload.get("skipped", [])
+            if isinstance(skipped, list) and skipped:
+                skipped_names = "\n".join(Path(str(f)).name for f in skipped)
+                messagebox.showwarning("Warning", self.t["some_pdfs_skipped"].format(skipped_names))
+            messagebox.showinfo(
+                "Success",
+                self.t["operation_completed"].format(
+                    str(payload.get("destination", "")),
+                    str(payload.get("pdfname", "")),
+                ),
+            )
+            return
+
+        if op_type == "split":
+            messagebox.showinfo(
+                "Success",
+                self.t["split_completed"].format(
+                    int(payload.get("created_count", 0)),
+                    str(payload.get("destination", "")),
+                ),
+            )
+            return
+
+    def _handle_worker_error(self, error_message: str) -> None:
+        if not error_message:
+            messagebox.showerror("Error", "Unknown error")
+            return
+        if error_message.startswith("split_file_exists::"):
+            filename = error_message.split("::", 1)[1]
+            messagebox.showerror("Error", self.t["split_file_exists"].format(filename))
+            return
+        messagebox.showerror("Error", self.t.get(error_message, error_message))
+
+    def _start_background_job(
+        self,
+        worker_fn: Callable[[Callable[[int, int, str], None]], dict[str, object]],
+        status_text: str,
+    ) -> None:
+        self._set_processing_state(True, status_text=status_text)
+        progress_cb = self._queue_progress_callback()
+
+        def runner() -> None:
+            try:
+                result = worker_fn(progress_cb)
+                self._worker_queue.put(("done", result))
+            except Exception as exc:
+                self._worker_queue.put(("error", str(exc)))
+
+        self._active_worker = threading.Thread(target=runner, daemon=True)
+        self._active_worker.start()
+        self.root.after(80, self._poll_worker_queue)
+
+    def _queue_progress_callback(self) -> Callable[[int, int, str], None]:
+        def callback(current: int, total: int, stage: str) -> None:
+            self._worker_queue.put(("progress", (current, total, stage)))
+
+        return callback
+
+    def _request_password(self, pdf_path: str) -> str | None:
+        filename = Path(pdf_path).name
+        while True:
+            password = simpledialog.askstring(
+                self.t["encrypted_prompt_title"],
+                self.t["encrypted_prompt"].format(filename),
+                show="*",
+                parent=self.root,
+            )
+            if password is None:
+                return None
+            if PDF.check_password(pdf_path, password):
+                return password
+            messagebox.showerror("Error", self.t["wrong_password"].format(filename))
+
+    def _resolve_passwords_for_merge(self, files: list[str]) -> dict[str, str] | None:
+        passwords: dict[str, str] = {}
+        for path in files:
+            if not PDF.is_encrypted(path):
+                continue
+            cached = self._password_cache.get(path)
+            if cached and PDF.check_password(path, cached):
+                passwords[path] = cached
+                continue
+            entered = self._request_password(path)
+            if entered is None:
+                return None
+            self._password_cache[path] = entered
+            passwords[path] = entered
+        return passwords
+
+    def _resolve_password_for_split(self, source_pdf: str) -> str | None:
+        if not PDF.is_encrypted(source_pdf):
+            return ""
+        cached = self._password_cache.get(source_pdf)
+        if cached and PDF.check_password(source_pdf, cached):
+            return cached
+        entered = self._request_password(source_pdf)
+        if entered is None:
+            return None
+        self._password_cache[source_pdf] = entered
+        return entered
 
 
 if __name__ == "__main__":
