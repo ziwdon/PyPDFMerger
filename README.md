@@ -14,10 +14,14 @@ A simple GUI application for merging multiple PDF files into one or splitting a 
   - Clear all selected files with one click
   - Choose an explicit output folder independent of source file location
   - Automatic validation — invalid or unreadable PDFs are skipped with a warning
+  - Merge runs in the background with a progress bar, so the UI stays responsive
+  - Password-protected PDFs are detected and prompt for a password
 - Split mode:
   - Split one PDF by page ranges (for example: `1-3,5,8-10`)
   - Split one PDF every N pages
   - Split one PDF by top-level bookmarks/sections
+  - Split runs in the background with progress updates
+  - Password-protected source PDFs are detected and prompt for a password
 - English / Spanish language toggle
 
 ## Requirements
