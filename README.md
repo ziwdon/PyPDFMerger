@@ -48,14 +48,25 @@ A simple GUI application for merging multiple PDF files into one or splitting a 
 
 3. **Install dependencies**:
    ```sh
-   pip install -r requirements.txt
+   python -m pip install -r requirements.txt
    ```
+
+   If you see `ModuleNotFoundError: No module named 'pypdf'`, it means the
+   dependencies were not installed in the Python interpreter you are using to run
+   the app.
 
 ## Usage
 
 ### Run directly
 
 ```sh
+python PyPDFMerger/PyPDFMergerGUI.pyw
+```
+
+On Windows PowerShell, after activating your virtual environment, you can run:
+
+```powershell
+python -m pip install -r requirements.txt
 python PyPDFMerger/PyPDFMergerGUI.pyw
 ```
 

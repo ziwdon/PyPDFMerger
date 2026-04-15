@@ -10,10 +10,34 @@ import threading
 from typing import Callable
 from urllib.parse import unquote, urlparse
 
-import pypdf
 import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog, ttk
 from tkinter import font as tkfont
+
+def _show_missing_dependency_error(package_name: str) -> None:
+    install_cmd = "python -m pip install -r requirements.txt"
+    message = (
+        f"Missing dependency: '{package_name}'.\n\n"
+        "Install the project dependencies and run again:\n"
+        f"{install_cmd}"
+    )
+    try:
+        root = tk.Tk()
+        root.withdraw()
+        messagebox.showerror("PyPDFMerger", message)
+        root.destroy()
+    except Exception:
+        # If Tk cannot initialize (headless env), still exit with the same message.
+        pass
+    raise SystemExit(message)
+
+
+try:
+    import pypdf
+except ModuleNotFoundError as exc:
+    if exc.name == "pypdf":
+        _show_missing_dependency_error("pypdf")
+    raise
 
 try:
     from tkinterdnd2 import DND_FILES, TkinterDnD
